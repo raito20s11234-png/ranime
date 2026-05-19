@@ -1,0 +1,257 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Search, Star, Play, ArrowLeft, Heart } from "lucide-react";
+
+// ===============================
+// Ranime 完全無料運用版（フル拡張）
+// ===============================
+// 使用技術（無料）
+// - Next.js (Vercel無料)
+// - AniList API（無料）
+// - localStorage（DB代わり）
+// - YouTube埋め込み（公式動画のみ）
+// ===============================
+
+export default function RanimeApp() {
+  const [view, setView] = useState("home");
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState("");
+  const [animeList, setAnimeList] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // ===============================
+  // ローカル保存（お気に入り）
+  // ===============================
+  useEffect(() => {
+    const saved = localStorage.getItem("ranime_fav");
+    if (saved) setFavorites(JSON.parse(saved));
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("ranime_fav", JSON.stringify(favorites));
+  }, [favorites]);
+
+  // ===============================
+  // AniList API（無料・全自動更新）
+  // ===============================
+  useEffect(() => {
+    const fetchAnime = async () => {
+      setLoading(true);
+
+      const query = `
+        query {
+          Page(page: 1, perPage: 50) {
+            media(type: ANIME, sort: POPULARITY_DESC) {
+              id
+              title { romaji native }
+              coverImage { large }
+              averageScore
+              episodes
+              genres
+              description(asHtml: false)
+            }
+          }
+        }
+      `;
+
+      try {
+        const res = await fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+
+        const json = await res.json();
+
+        const formatted = json.data.Page.media.map((a) => ({
+          id: a.id,
+          title: a.title.native || a.title.romaji,
+          genre: a.genres?.[0] || "不明",
+          rating: a.averageScore || "-",
+          episode: a.episodes || "-",
+          image: a.coverImage.large,
+          description: a.description || "",
+          video: "https://www.youtube.com/embed/dQw4w9WgXcQ" // デモ（公式差し替え可能）
+        }));
+
+        setAnimeList(formatted);
+      } catch (e) {
+        console.error("API error", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAnime();
+  }, []);
+
+  const filtered = animeList.filter((a) =>
+    a.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const isFav = (id) => favorites.some((f) => f.id === id);
+
+  const toggleFavorite = (anime) => {
+    if (isFav(anime.id)) {
+      setFavorites(favorites.filter((f) => f.id !== anime.id));
+    } else {
+      setFavorites([...favorites, anime]);
+    }
+  };
+
+  // ===============================
+  // ローディング
+  // ===============================
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        読み込み中...
+      </div>
+    );
+  }
+
+  // ===============================
+  // 詳細ページ
+  // ===============================
+  if (view === "detail" && selected) {
+    return (
+      <div className="min-h-screen bg-black text-white p-6">
+        <button onClick={() => setView("home")} className="mb-4 flex gap-2">
+          <ArrowLeft /> 戻る
+        </button>
+
+        <div className="flex flex-col md:flex-row gap-6">
+          <img src={selected.image} className="w-64 rounded-xl" />
+
+          <div>
+            <h1 className="text-3xl font-bold">{selected.title}</h1>
+            <p className="text-purple-400">{selected.genre}</p>
+            <p className="text-yellow-400">★ {selected.rating}</p>
+
+            <p className="text-zinc-400 mt-4">
+              {selected.description?.replace(/<[^>]+>/g, "")}
+            </p>
+
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => setView("player")}
+                className="bg-purple-600 px-4 py-2 rounded-xl flex gap-2"
+              >
+                <Play size={16} /> 再生
+              </button>
+
+              <button
+                onClick={() => toggleFavorite(selected)}
+                className="bg-zinc-800 px-4 py-2 rounded-xl flex gap-2"
+              >
+                <Heart fill={isFav(selected.id) ? "red" : "none"} />
+                お気に入り
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ===============================
+  // 再生ページ（無料：YouTube/公式埋め込み）
+  // ===============================
+  if (view === "player" && selected) {
+    return (
+      <div className="min-h-screen bg-black text-white p-6">
+        <button onClick={() => setView("detail")} className="mb-4 flex gap-2">
+          <ArrowLeft /> 戻る
+        </button>
+
+        <h1 className="text-2xl font-bold mb-4">{selected.title}</h1>
+
+        <div className="aspect-video bg-zinc-900 rounded-xl overflow-hidden">
+          <iframe
+            src={selected.video}
+            className="w-full h-full"
+            allowFullScreen
+          />
+        </div>
+
+        <p className="text-zinc-500 mt-3">
+          無料版では公式動画またはYouTube連携のみ対応
+        </p>
+      </div>
+    );
+  }
+
+  // ===============================
+  // ホーム（完成版）
+  // ===============================
+  return (
+    <div className="min-h-screen bg-black text-white">
+
+      {/* ヘッダー */}
+      <header className="p-4 border-b border-zinc-800 flex justify-between">
+        <h1 className="text-2xl font-bold">Ranime</h1>
+
+        <div className="relative w-64">
+          <Search className="absolute left-3 top-3 h-4 w-4 text-zinc-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="アニメを検索..."
+            className="bg-zinc-900 border border-zinc-700 rounded-xl pl-10 pr-4 py-2 w-full"
+          />
+        </div>
+      </header>
+
+      {/* コンテンツ */}
+      <main className="max-w-7xl mx-auto p-6">
+
+        <h2 className="text-2xl font-bold mb-4">🔥 人気アニメ（自動更新）</h2>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {filtered.map((a) => (
+            <div
+              key={a.id}
+              onClick={() => {
+                setSelected(a);
+                setView("detail");
+              }}
+              className="bg-zinc-950 rounded-xl overflow-hidden cursor-pointer"
+            >
+              <img src={a.image} className="h-48 w-full object-cover" />
+
+              <div className="p-3">
+                <p className="text-sm font-bold">{a.title}</p>
+                <p className="text-xs text-zinc-400">{a.genre}</p>
+                <p className="text-xs text-yellow-400">★ {a.rating}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* お気に入り */}
+        <div className="mt-10">
+          <h3 className="text-xl font-bold mb-2">❤️ お気に入り</h3>
+          {favorites.length === 0 ? (
+            <p className="text-zinc-500">まだなし</p>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {favorites.map((a) => (
+                <div key={a.id} className="bg-zinc-900 p-2 rounded">
+                  {a.title}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 追加情報 */}
+        <div className="mt-10 text-sm text-zinc-500">
+          ✔ 完全無料構成 / ✔ AniList自動更新 / ✔ ログインなし / ✔ お気に入り保存 / ✔ 詳細・再生ページ
+        </div>
+
+      </main>
+    </div>
+  );
+}
